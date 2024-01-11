@@ -1,4 +1,4 @@
-module enum-subdomain-go
+module github.com/lightless233/enum-subdomain-go
 
 go 1.21
 
