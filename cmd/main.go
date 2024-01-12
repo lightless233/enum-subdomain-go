@@ -26,7 +26,7 @@ func main() {
 	}
 
 	// 创建 App 并执行
-	app := enumsubdomain.NewEnumSubdomainApp(appArgs)
+	app := enumsubdomain.NewApp(appArgs)
 	_, err = app.Run()
 	if err != nil {
 		logger.Fatalf("Error when run EnumSubdomain, error: %+v", err)

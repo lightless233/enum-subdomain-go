@@ -9,13 +9,13 @@ import (
 
 var logger = internal.GetSugar()
 
-type EnumSubdomainApp struct {
+type App struct {
 	args *AppArgs
 }
 
-func NewEnumSubdomainApp(args *AppArgs) *EnumSubdomainApp {
+func NewApp(args *AppArgs) *App {
 	// 如果是从 SDK 进来的，需要初始化一下日志
-	if logger == nil {
+	if !args.FromCLI {
 		if args.Debug {
 			internal.InitLogger(true)
 		} else {
@@ -23,10 +23,10 @@ func NewEnumSubdomainApp(args *AppArgs) *EnumSubdomainApp {
 		}
 	}
 
-	return &EnumSubdomainApp{args: args}
+	return &App{args: args}
 }
 
-func (app *EnumSubdomainApp) checkTechnicals() error {
+func (app *App) checkTechnicals() error {
 	if app.args.Technicals == nil || len(app.args.Technicals) == 0 {
 		return fmt.Errorf("technical can't be empty")
 	}
@@ -40,7 +40,7 @@ func (app *EnumSubdomainApp) checkTechnicals() error {
 	return nil
 }
 
-func (app *EnumSubdomainApp) checkNameserver() (*DNSClient, error) {
+func (app *App) checkNameserver() (*DNSClient, error) {
 	// 如果没有设置 nameservers，那么使用默认值
 	if app.args.Nameserver == nil || len(app.args.Nameserver) == 0 {
 		app.args.Nameserver = []string{
@@ -75,7 +75,7 @@ func (app *EnumSubdomainApp) checkNameserver() (*DNSClient, error) {
 	return dnsClient, nil
 }
 
-func (app *EnumSubdomainApp) checkWildcard(dnsClient *DNSClient) error {
+func (app *App) checkWildcard(dnsClient *DNSClient) error {
 	if dnsClient.CheckDomainWildcard(app.args.Target) {
 		logger.Warnf("Found wildcard, only `F` technical will execute.")
 
@@ -91,7 +91,7 @@ func (app *EnumSubdomainApp) checkWildcard(dnsClient *DNSClient) error {
 }
 
 // checkArgs 检查指定的 args 是否合法
-func (app *EnumSubdomainApp) checkArgs() error {
+func (app *App) checkArgs() error {
 
 	// 检查 technicals 是否合法
 	if err := app.checkTechnicals(); err != nil {
@@ -116,7 +116,7 @@ func (app *EnumSubdomainApp) checkArgs() error {
 }
 
 // Run 真正的程序入口，不管是 CLI 进来的，还是 API 进来的，都会调用这个函数开始执行
-func (app *EnumSubdomainApp) Run() ([]*SubdomainResult, error) {
+func (app *App) Run() ([]*SubdomainResult, error) {
 	// 检查参数是否合法
 	if err := app.checkArgs(); err != nil {
 		return nil, err
