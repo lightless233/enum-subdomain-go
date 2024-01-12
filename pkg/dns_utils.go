@@ -1,4 +1,4 @@
-package enum_subdomain
+package enumsubdomain
 
 import (
 	"github.com/miekg/dns"
