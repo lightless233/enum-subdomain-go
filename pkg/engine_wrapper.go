@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import "sync"
 
@@ -8,10 +8,12 @@ type EngineWrapper struct {
 
 	bruteTaskChan chan string
 	fofaTaskChan  chan string
-	resultChan    chan *AppResult
+	resultChan    chan *SubdomainResult
+
+	appArgs *AppArgs
 }
 
-func NewEngineWrapper(mainWG *sync.WaitGroup, bruteTaskChan, fofaTaskChan chan string, resultChan chan *AppResult) *EngineWrapper {
+func NewEngineWrapper(appArgs *AppArgs, mainWG *sync.WaitGroup, bruteTaskChan, fofaTaskChan chan string, resultChan chan *SubdomainResult) *EngineWrapper {
 	var wg sync.WaitGroup
 	return &EngineWrapper{
 		mainWG:        mainWG,
@@ -19,6 +21,7 @@ func NewEngineWrapper(mainWG *sync.WaitGroup, bruteTaskChan, fofaTaskChan chan s
 		bruteTaskChan: bruteTaskChan,
 		fofaTaskChan:  fofaTaskChan,
 		resultChan:    resultChan,
+		appArgs:       appArgs,
 	}
 }
 
@@ -32,11 +35,11 @@ func (wrapper *EngineWrapper) Run() {
 	fofaResultChan := make(chan string, 128)
 
 	// 启动 dns engine 和 fofa engine
-	bruteEngine := NewBruteEngine(wrapper.waitGroup, wrapper.bruteTaskChan, fofaResultChan, wrapper.resultChan)
+	bruteEngine := NewBruteEngine(wrapper.appArgs, wrapper.waitGroup, wrapper.bruteTaskChan, fofaResultChan, wrapper.resultChan)
 	wrapper.waitGroup.Add(1)
 	go bruteEngine.Run()
 
-	fofaEngine := NewFofaEngine(wrapper.waitGroup, wrapper.fofaTaskChan, fofaResultChan)
+	fofaEngine := NewFofaEngine(wrapper.appArgs, wrapper.waitGroup, wrapper.fofaTaskChan, fofaResultChan)
 	wrapper.waitGroup.Add(1)
 	go fofaEngine.Run()
 

@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"fmt"
@@ -15,13 +15,9 @@ import (
 // var logger zap.Logger
 var sugarLogger zap.SugaredLogger
 
-//func GetLogger() *zap.Logger {
-//	return &logger
-//}
-
-//func GetSugar() *zap.SugaredLogger {
-//	return &sugarLogger
-//}
+func GetSugar() *zap.SugaredLogger {
+	return &sugarLogger
+}
 
 func InitLogger(debug bool) {
 
@@ -64,10 +60,13 @@ func InitLogger(debug bool) {
 	encoder := zapcore.NewConsoleEncoder(encoderConfig)
 
 	syncer := zapcore.NewMultiWriteSyncer(zapcore.AddSync(lumberjackLogger), zapcore.AddSync(os.Stdout))
-	core := zapcore.NewCore(encoder, syncer, zapcore.DebugLevel)
+	var core zapcore.Core
+	if debug {
+		core = zapcore.NewCore(encoder, syncer, zapcore.DebugLevel)
+	} else {
+		core = zapcore.NewCore(encoder, syncer, zapcore.InfoLevel)
+	}
 
 	l := zap.New(core, zap.AddCaller())
-
-	// logger = *l
 	sugarLogger = *l.Sugar()
 }

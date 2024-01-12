@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"encoding/csv"
@@ -8,25 +8,28 @@ import (
 	"sync"
 )
 
-type AppResult struct {
+type SubdomainResult struct {
 	dnsResult  *DNSResolveResult
 	httpResult *HTTPResult
 	// httpError  string
 }
 
 type ResultEngine struct {
-	mainWG    *sync.WaitGroup
-	waitGroup *sync.WaitGroup
-
-	resultChan chan *AppResult
+	mainWG          *sync.WaitGroup
+	waitGroup       *sync.WaitGroup
+	resultChan      chan *SubdomainResult
+	appArgs         *AppArgs
+	subdomainResult []*SubdomainResult
 }
 
-func NewResultEngine(mainWG *sync.WaitGroup, resultChan chan *AppResult) *ResultEngine {
+func NewResultEngine(appArgs *AppArgs, mainWG *sync.WaitGroup, resultChan chan *SubdomainResult) *ResultEngine {
 	var wg sync.WaitGroup
 	return &ResultEngine{
-		mainWG:     mainWG,
-		waitGroup:  &wg,
-		resultChan: resultChan,
+		mainWG:          mainWG,
+		waitGroup:       &wg,
+		resultChan:      resultChan,
+		appArgs:         appArgs,
+		subdomainResult: make([]*SubdomainResult, 0),
 	}
 }
 
@@ -39,12 +42,17 @@ func (engine *ResultEngine) Run() {
 }
 
 func (engine *ResultEngine) worker() {
-	defer engine.waitGroup.Done()
+	defer func() {
+		engine.waitGroup.Done()
+		if r := recover(); r != nil {
+			logger.Errorf("ResultEngine panic: %+v", r)
+		}
+	}()
 
-	fp, err := os.OpenFile(appArgs.OutputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0644)
+	fp, err := os.OpenFile(engine.appArgs.OutputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0644)
 	defer func() { _ = fp.Close() }()
 	if err != nil {
-		sugarLogger.Fatalf("Can't open output file to write. filename: %s, error: %+v", appArgs.OutputFile, err)
+		logger.Fatalf("Can't open output file to write. filename: %s, error: %+v", engine.appArgs.OutputFile, err)
 		panic(err)
 	}
 	writer := csv.NewWriter(fp)
@@ -55,7 +63,7 @@ func (engine *ResultEngine) worker() {
 	// 加个 buffer 去重使用
 	buffer := make(map[string]string)
 
-	sugarLogger.Debugf("ResultEngine start.")
+	logger.Debugf("ResultEngine start.")
 	for {
 		task, opened := <-engine.resultChan
 		if !opened {
@@ -86,18 +94,21 @@ func (engine *ResultEngine) worker() {
 			strconv.Itoa(int(task.httpResult.bodyLength)),
 			task.httpResult.error,
 		})
-		// err := writer.Write([]string{task.domain, strings.Join(task.CNAMERecord, ","), strings.Join(task.ARecord, ",")})
 		if err != nil {
-			sugarLogger.Fatalf("Can't write result file, filename: %s, error: %+v", appArgs.OutputFile, err)
+			logger.Fatalf("Can't write result file, filename: %s, error: %+v", engine.appArgs.OutputFile, err)
 			panic(err)
 		}
 		writer.Flush()
 
-		// 打印结果
-		sugarLogger.Infof("%s - %v - %v || %d - %s - %s - %d",
-			task.dnsResult.domain, task.dnsResult.CNAMERecord, task.dnsResult.ARecord,
-			task.httpResult.statusCode, task.httpResult.title, task.httpResult.location, task.httpResult.bodyLength,
-		)
+		engine.subdomainResult = append(engine.subdomainResult, task)
+
+		// 只有从命令行执行的时候才打印结果
+		if engine.appArgs.FromCLI {
+			logger.Infof("%s - %v - %v || %d - %s - %s - %d",
+				task.dnsResult.domain, task.dnsResult.CNAMERecord, task.dnsResult.ARecord,
+				task.httpResult.statusCode, task.httpResult.title, task.httpResult.location, task.httpResult.bodyLength,
+			)
+		}
 	}
-	sugarLogger.Debugf("ResultEngine end.")
+	logger.Debugf("ResultEngine end.")
 }

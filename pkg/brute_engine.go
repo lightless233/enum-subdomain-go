@@ -1,8 +1,7 @@
-package main
+package pkg
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"slices"
 	"sync"
 	"time"
@@ -14,12 +13,13 @@ type BruteEngine struct {
 
 	bruteTaskChan  chan string
 	fofaResultChan chan string
-	resultChan     chan *AppResult
+	resultChan     chan *SubdomainResult
 
 	channelStatus []bool
+	appArgs       *AppArgs
 }
 
-func NewBruteEngine(mainWG *sync.WaitGroup, bruteTaskChan, fofaResultChan chan string, resultChan chan *AppResult) *BruteEngine {
+func NewBruteEngine(appArgs *AppArgs, mainWG *sync.WaitGroup, bruteTaskChan, fofaResultChan chan string, resultChan chan *SubdomainResult) *BruteEngine {
 	var wg sync.WaitGroup
 
 	return &BruteEngine{
@@ -29,6 +29,7 @@ func NewBruteEngine(mainWG *sync.WaitGroup, bruteTaskChan, fofaResultChan chan s
 		fofaResultChan: fofaResultChan,
 		resultChan:     resultChan,
 		channelStatus:  []bool{true, true},
+		appArgs:        appArgs,
 	}
 }
 
@@ -36,7 +37,7 @@ func (e *BruteEngine) Run() {
 	defer e.mainWG.Done()
 
 	var idx uint = 0
-	for ; idx < appArgs.TaskCount; idx++ {
+	for ; idx < e.appArgs.TaskCount; idx++ {
 		e.waitGroup.Add(1)
 		go e.worker(idx)
 	}
@@ -57,7 +58,7 @@ func (e *BruteEngine) fetchTaskFromChannel(timeout time.Duration) string {
 			break
 		}
 
-		domain = fmt.Sprintf("%s.%s", v, appArgs.Target)
+		domain = fmt.Sprintf("%s.%s", v, e.appArgs.Target)
 	case v, opened := <-e.fofaResultChan:
 		if !opened {
 			e.fofaResultChan = nil
@@ -75,11 +76,11 @@ func (e *BruteEngine) fetchTaskFromChannel(timeout time.Duration) string {
 }
 
 // resolve 执行 DNS 解析，最多重试三次
-func (e *BruteEngine) resolve(domain string, dnsClient *dns.Client) *DNSResolveResult {
+func (e *BruteEngine) resolve(domain string, dnsClient *DNSClient) *DNSResolveResult {
 	for retry := 3; retry > 0; retry-- {
-		result, err := DoDNSResolve(domain, dnsClient)
+		result, err := dnsClient.DoDNSResolve(domain)
 		if err != nil {
-			sugarLogger.Warnf("Error when dns resolve, domain: %s, err: %+v, retry: %d", domain, err, retry)
+			logger.Warnf("Error when dns resolve, domain: %s, err: %+v, retry: %d", domain, err, retry)
 			continue
 		} else {
 			return result
@@ -93,10 +94,10 @@ func (e *BruteEngine) worker(idx uint) {
 
 	tag := fmt.Sprintf("[BruteEngine-%d]", idx)
 
-	// 每个协程都自己维护一个 client
-	dnsClient := BuildDNSClient()
+	// 每个协程自己维护 client
+	dnsClient := NewDNSClient(e.appArgs.Nameserver)
 
-	sugarLogger.Debugf("%s start!", tag)
+	logger.Debugf("%s start!", tag)
 
 	for {
 		// 如果所有监听的channel都关闭了，状态都是 false 就跳出主循环
@@ -109,7 +110,6 @@ func (e *BruteEngine) worker(idx uint) {
 		if domain == "" {
 			continue
 		}
-		// sugarLogger.Debugf("%s Receive task: %s", tag, domain)
 
 		// 执行 DNS 解析
 		result := e.resolve(domain, dnsClient)
@@ -123,25 +123,22 @@ func (e *BruteEngine) worker(idx uint) {
 		}
 
 		// 最终的扫描结果
-		appResult := &AppResult{}
+		appResult := &SubdomainResult{}
 		appResult.dnsResult = result
 
 		// 如果设置了获取 HTTP 标题的功能，则在这里去获取
-		if appArgs.FetchTitle {
+		if e.appArgs.FetchTitle {
 			httpResult := FetchIndexTitle(domain)
 			appResult.httpResult = httpResult
-			// appResult.httpError = err.Error()
 		} else {
 			appResult.httpResult = &HTTPResult{}
-			// appResult.httpError = ""
 		}
 
 		// 添加到 result channel
 		if len(result.CNAMERecord) != 0 || len(result.ARecord) != 0 {
-			// sugarLogger.Infof("%s - %v", domain, result)
 			e.resultChan <- appResult
 		}
 	}
 
-	sugarLogger.Debugf("%s stop.", tag)
+	logger.Debugf("%s stop.", tag)
 }

@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"encoding/base64"
@@ -19,15 +19,17 @@ type FofaEngine struct {
 	waitGroup      *sync.WaitGroup
 	fofaTaskChan   chan string
 	fofaResultChan chan string
+	appArgs        *AppArgs
 }
 
-func NewFofaEngine(mainWG *sync.WaitGroup, fofaTaskChan, fofaResultChan chan string) *FofaEngine {
+func NewFofaEngine(appArgs *AppArgs, mainWG *sync.WaitGroup, fofaTaskChan, fofaResultChan chan string) *FofaEngine {
 	var wg sync.WaitGroup
 	return &FofaEngine{
 		mainWG:         mainWG,
 		waitGroup:      &wg,
 		fofaTaskChan:   fofaTaskChan,
 		fofaResultChan: fofaResultChan,
+		appArgs:        appArgs,
 	}
 }
 
@@ -46,12 +48,12 @@ func (engine *FofaEngine) Run() {
 func (engine *FofaEngine) worker() {
 	defer engine.waitGroup.Done()
 
-	if appArgs.FofaToken == "" {
+	if engine.appArgs.FofaToken == "" {
 		return
 	}
 
 	fofaURL := "https://fofa.info/api/v1/search/all?email=${e}&key=${k}&qbase64=${q}&page=${p}"
-	fofaParts := strings.Split(appArgs.FofaToken, "|")
+	fofaParts := strings.Split(engine.appArgs.FofaToken, "|")
 	fofaEmail := fofaParts[0]
 	fofaToken := fofaParts[1]
 
@@ -59,17 +61,17 @@ func (engine *FofaEngine) worker() {
 		Timeout: 30 * time.Second,
 	}
 
-	sugarLogger.Debugf("FofaEngine start.")
+	logger.Debugf("FofaEngine start.")
 	for {
 		task, opened := <-engine.fofaTaskChan
 		if !opened {
 			break
 		}
-		sugarLogger.Debugf("Received fofa task: %+v", task)
+		logger.Debugf("Received fofa task: %+v", task)
 
 		// 最大查询 30 页
 		var fofaResults []string
-		q := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("domain=%s", appArgs.Target)))
+		q := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("domain=%s", engine.appArgs.Target)))
 		for p := 1; p <= 30; p++ {
 			url := strings.ReplaceAll(fofaURL, "${q}", q)
 			url = strings.ReplaceAll(url, "${p}", strconv.Itoa(p))
@@ -77,7 +79,7 @@ func (engine *FofaEngine) worker() {
 			url = strings.ReplaceAll(url, "${k}", fofaToken)
 
 			bContent, err := func() ([]byte, error) {
-				sugarLogger.Debug("Start fetch page ", p)
+				logger.Debug("Start fetch page ", p)
 				request, err := http.NewRequest("GET", url, nil)
 
 				if err != nil {
@@ -97,7 +99,7 @@ func (engine *FofaEngine) worker() {
 				return bContent, nil
 			}()
 			if err != nil {
-				sugarLogger.Warnf("error when fetch page %d, error: %+v, skip this page", p, err)
+				logger.Warnf("error when fetch page %d, error: %+v, skip this page", p, err)
 				continue
 			}
 
@@ -130,7 +132,7 @@ func (engine *FofaEngine) worker() {
 			var data map[string]interface{}
 			err = sonic.Unmarshal(bContent, &data)
 			if err != nil {
-				sugarLogger.Warnf("error when convert page %d data to json, error: %+v, skip this page", p, err)
+				logger.Warnf("error when convert page %d data to json, error: %+v, skip this page", p, err)
 				continue
 			}
 
@@ -152,7 +154,7 @@ func (engine *FofaEngine) worker() {
 
 				parsed, err := netURL.Parse(rawURL)
 				if err != nil {
-					sugarLogger.Warnf("Error when parse raw url: %s, err: %+v", rawURL, err)
+					logger.Warnf("Error when parse raw url: %s, err: %+v", rawURL, err)
 					continue
 				}
 
@@ -167,11 +169,11 @@ func (engine *FofaEngine) worker() {
 
 		// 从fofa获取完成，通过其他的 channel 发送给 brute_engine
 		for _, domain := range fofaResults {
-			sugarLogger.Debugf("Put %s to channel", domain)
+			logger.Debugf("Put %s to channel", domain)
 			engine.fofaResultChan <- domain
 		}
-		sugarLogger.Infof("Found %d domain from fofa, start verify...", len(fofaResults))
+		logger.Infof("Found %d domain from fofa, start verify...", len(fofaResults))
 
 	}
-	sugarLogger.Debugf("FofaEngine end.")
+	logger.Debugf("FofaEngine end.")
 }
