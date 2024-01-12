@@ -7,7 +7,7 @@ import (
 
 func main() {
 	// 解析命令行参数
-	appArgs, err := pkg.ParseCLIArgs()
+	appArgs, err := enum_subdomain.ParseCLIArgs()
 	if err != nil {
 		panic(err)
 		return
@@ -26,7 +26,7 @@ func main() {
 	}
 
 	// 创建 App 并执行
-	app := pkg.NewEnumSubdomainApp(appArgs)
+	app := enum_subdomain.NewEnumSubdomainApp(appArgs)
 	_, err = app.Run()
 	if err != nil {
 		logger.Fatalf("Error when run EnumSubdomain, error: %+v", err)

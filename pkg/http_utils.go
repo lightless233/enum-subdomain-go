@@ -1,4 +1,4 @@
-package pkg
+package enum_subdomain
 
 import (
 	"crypto/tls"
