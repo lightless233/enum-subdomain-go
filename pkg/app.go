@@ -3,7 +3,10 @@ package enumsubdomain
 import (
 	"fmt"
 	"github.com/lightless233/enum-subdomain-go/internal"
+	"net"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -31,6 +34,14 @@ func (app *App) checkTechnicals() error {
 		return fmt.Errorf("technical can't be empty")
 	}
 
+	// 如果走 CLI 进来的，不会有这个校验，要再检查一次
+	for _, tech := range app.args.Technicals {
+		tech = strings.ToUpper(strings.TrimSpace(tech))
+		if tech != "D" && tech != "L" && tech != "F" {
+			return fmt.Errorf("technicals argument error, only D, L, F allowed")
+		}
+	}
+
 	for _, tech := range app.args.Technicals {
 		if tech == "F" && app.args.FofaToken == "" {
 			return fmt.Errorf("fofa token can't be empty when set 'F' technical")
@@ -54,6 +65,13 @@ func (app *App) checkNameserver() (*DNSClient, error) {
 
 		logger.Infof("Use default nameservers: %+v", app.args.Nameserver)
 
+	} else {
+		for _, ns := range app.args.Nameserver {
+			parsedIP := net.ParseIP(ns)
+			if parsedIP == nil {
+				return nil, fmt.Errorf("nameserver format error: %s", ns)
+			}
+		}
 	}
 
 	// 检查 nameserver 的连通性，移除无法连通的 nameserver
@@ -96,6 +114,14 @@ func (app *App) checkArgs() error {
 	// 检查 technicals 是否合法
 	if err := app.checkTechnicals(); err != nil {
 		return err
+	}
+
+	// 检查 brute-length 参数
+	if app.args.BruteLength != "" {
+		pattern := regexp.MustCompile(`(\d+|\d+-\d+)`)
+		if !pattern.MatchString(app.args.BruteLength) {
+			return fmt.Errorf("brute length format error")
+		}
 	}
 
 	// 检查 nameserver 是否合法

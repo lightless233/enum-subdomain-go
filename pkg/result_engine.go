@@ -2,6 +2,7 @@ package enumsubdomain
 
 import (
 	"encoding/csv"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -11,7 +12,14 @@ import (
 type SubdomainResult struct {
 	dnsResult  *DNSResolveResult
 	httpResult *HTTPResult
-	// httpError  string
+}
+
+func (r SubdomainResult) String() string {
+	return fmt.Sprintf(
+		"%s - %v - %v || %d - %s - %s - %d",
+		r.dnsResult.domain, r.dnsResult.CNAMERecord, r.dnsResult.ARecord,
+		r.httpResult.statusCode, r.httpResult.title, r.httpResult.location, r.httpResult.bodyLength,
+	)
 }
 
 type ResultEngine struct {
@@ -49,16 +57,20 @@ func (engine *ResultEngine) worker() {
 		}
 	}()
 
-	fp, err := os.OpenFile(engine.appArgs.OutputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0644)
-	defer func() { _ = fp.Close() }()
-	if err != nil {
-		logger.Fatalf("Can't open output file to write. filename: %s, error: %+v", engine.appArgs.OutputFile, err)
-		panic(err)
+	// 如果文件名为空，可能是从 CLI 进来的，不写文件
+	var writer *csv.Writer
+	if engine.appArgs.OutputFile != "" {
+		fp, err := os.OpenFile(engine.appArgs.OutputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0644)
+		defer func() { _ = fp.Close() }()
+		if err != nil {
+			logger.Fatalf("Can't open output file to write. filename: %s, error: %+v", engine.appArgs.OutputFile, err)
+			panic(err)
+		}
+		writer = csv.NewWriter(fp)
+		_ = writer.Write([]string{
+			"DOMAIN", "CNAME", "A", "STATUS_CODE", "TITLE", "LOCATION", "CONTENT_LENGTH", "HTTP_ERROR",
+		})
 	}
-	writer := csv.NewWriter(fp)
-	_ = writer.Write([]string{
-		"DOMAIN", "CNAME", "A", "STATUS_CODE", "TITLE", "LOCATION", "CONTENT_LENGTH", "HTTP_ERROR",
-	})
 
 	// 加个 buffer 去重使用
 	buffer := make(map[string]string)
@@ -84,30 +96,33 @@ func (engine *ResultEngine) worker() {
 		}
 
 		// 写入结果文件
-		err := writer.Write([]string{
-			task.dnsResult.domain,
-			strings.Join(task.dnsResult.CNAMERecord, ","),
-			strings.Join(task.dnsResult.ARecord, ","),
-			strconv.Itoa(int(task.httpResult.statusCode)),
-			task.httpResult.title,
-			task.httpResult.location,
-			strconv.Itoa(int(task.httpResult.bodyLength)),
-			task.httpResult.error,
-		})
-		if err != nil {
-			logger.Fatalf("Can't write result file, filename: %s, error: %+v", engine.appArgs.OutputFile, err)
-			panic(err)
+		if engine.appArgs.OutputFile != "" {
+			err := writer.Write([]string{
+				task.dnsResult.domain,
+				strings.Join(task.dnsResult.CNAMERecord, ","),
+				strings.Join(task.dnsResult.ARecord, ","),
+				strconv.Itoa(int(task.httpResult.statusCode)),
+				task.httpResult.title,
+				task.httpResult.location,
+				strconv.Itoa(int(task.httpResult.bodyLength)),
+				task.httpResult.error,
+			})
+			if err != nil {
+				logger.Fatalf("Can't write result file, filename: %s, error: %+v", engine.appArgs.OutputFile, err)
+				panic(err)
+			}
+			writer.Flush()
 		}
-		writer.Flush()
 
 		engine.subdomainResult = append(engine.subdomainResult, task)
 
 		// 只有从命令行执行的时候才打印结果
 		if engine.appArgs.FromCLI {
-			logger.Infof("%s - %v - %v || %d - %s - %s - %d",
-				task.dnsResult.domain, task.dnsResult.CNAMERecord, task.dnsResult.ARecord,
-				task.httpResult.statusCode, task.httpResult.title, task.httpResult.location, task.httpResult.bodyLength,
-			)
+			//logger.Infof("%s - %v - %v || %d - %s - %s - %d",
+			//	task.dnsResult.domain, task.dnsResult.CNAMERecord, task.dnsResult.ARecord,
+			//	task.httpResult.statusCode, task.httpResult.title, task.httpResult.location, task.httpResult.bodyLength,
+			//)
+			logger.Info(task.String())
 		}
 	}
 	logger.Debugf("ResultEngine end.")
